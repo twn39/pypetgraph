@@ -1,0 +1,85 @@
+[project]
+name = "pypetgraph"
+version = "0.1.0"
+description = "High-performance Python bindings for the Rust petgraph library with asyncio support"
+readme = "README.md"
+authors = [
+    { name = "curry tang", email = "twn39@163.com" }
+]
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["graph", "network", "petgraph", "rust", "pyo3", "asyncio", "dijkstra"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/twn39/pypetgraph"
+Repository = "https://github.com/twn39/pypetgraph"
+Issues = "https://github.com/twn39/pypetgraph/issues"
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+python-source = "src"
+module-name = "pypetgraph._pypetgraph"
+features = ["pyo3/extension-module"]
+
+[dependency-groups]
+dev = [
+    "psutil>=7.2.2",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=0.23.0",
+    "pytest-benchmark>=5.2.3",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.4",
+    "ty>=0.0.20",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["pypetgraph"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "async def.*_async",
+]
