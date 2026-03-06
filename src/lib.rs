@@ -5,7 +5,7 @@ use petgraph::graphmap::GraphMap;
 use petgraph::matrix_graph::MatrixGraph;
 use petgraph::stable_graph::StableGraph;
 use petgraph::unionfind::UnionFind as PetUnionFind;
-use petgraph::visit::{Bfs, Dfs, EdgeRef, NodeIndexable};
+use petgraph::visit::{Bfs, Dfs, EdgeIndexable, EdgeRef, NodeIndexable};
 use petgraph::{Directed, Direction, Undirected};
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::prelude::*;
@@ -22,8 +22,9 @@ type PetMatrixGraph = MatrixGraph<Py<PyAny>, f64, Directed>;
 type PetCsrGraph = Csr<(), f64>;
 
 /// Pre-extracts edge weights to f64 to enable GIL-free algorithm execution.
-fn extract_edge_costs(graph: &PetDiGraph, py: Python<'_>) -> PyResult<HashMap<EdgeIndex, f64>> {
-    let mut costs = HashMap::with_capacity(graph.edge_count());
+/// Uses a Vec indexed by EdgeIndex for O(1) access without hashing overhead.
+fn extract_edge_costs(graph: &PetDiGraph, py: Python<'_>) -> PyResult<Vec<f64>> {
+    let mut costs = vec![0.0f64; graph.edge_bound()];
     for edge in graph.edge_references() {
         let w: f64 = edge.weight().bind(py).extract::<f64>().map_err(|_| {
             PyValueError::new_err(format!(
@@ -32,7 +33,7 @@ fn extract_edge_costs(graph: &PetDiGraph, py: Python<'_>) -> PyResult<HashMap<Ed
                 edge.target().index()
             ))
         })?;
-        costs.insert(edge.id(), w);
+        costs[edge.id().index()] = w;
     }
     Ok(costs)
 }
@@ -92,14 +93,32 @@ impl UnionFind {
             size: n,
         }
     }
-    fn find(&mut self, i: usize) -> usize {
-        self.inner.find(i)
+    fn find(&mut self, i: usize) -> PyResult<usize> {
+        if i >= self.size {
+            return Err(PyIndexError::new_err(format!(
+                "UnionFind index {} out of range (size={})",
+                i, self.size
+            )));
+        }
+        Ok(self.inner.find(i))
     }
-    fn union(&mut self, i: usize, j: usize) -> bool {
-        self.inner.union(i, j)
+    fn union(&mut self, i: usize, j: usize) -> PyResult<bool> {
+        if i >= self.size || j >= self.size {
+            return Err(PyIndexError::new_err(format!(
+                "UnionFind index out of range (size={})",
+                self.size
+            )));
+        }
+        Ok(self.inner.union(i, j))
     }
-    fn equiv(&mut self, i: usize, j: usize) -> bool {
-        self.inner.find(i) == self.inner.find(j)
+    fn equiv(&mut self, i: usize, j: usize) -> PyResult<bool> {
+        if i >= self.size || j >= self.size {
+            return Err(PyIndexError::new_err(format!(
+                "UnionFind index out of range (size={})",
+                self.size
+            )));
+        }
+        Ok(self.inner.find(i) == self.inner.find(j))
     }
     fn into_labeling(&self) -> Vec<usize> {
         self.inner.clone().into_labeling()
@@ -145,12 +164,27 @@ impl DiGraph {
                 .max()
                 .map_or(0, |m| m + 1)
         });
+        // Guard against accidentally allocating millions of empty nodes when node IDs are
+        // sparse (e.g. edges=[(1_000_000, 1_000_001, w)] without explicit node_count).
+        // Callers with non-contiguous IDs should always pass node_count explicitly.
+        const MAX_IMPLICIT_NODES: usize = 1_000_000;
+        if node_count.is_none() && n > MAX_IMPLICIT_NODES {
+            return Err(PyValueError::new_err(format!(
+                "from_edges: implied node count ({n}) exceeds {MAX_IMPLICIT_NODES}. \
+                 Pass node_count explicitly if you intend this, or use dense 0-based node IDs."
+            )));
+        }
         let mut g = PetDiGraph::with_capacity(n, edges.len());
         // Use Python None as the default node weight (cleaner semantics than integer index).
         for _ in 0..n {
             g.add_node(py.None().into_bound(py).unbind());
         }
         for (u, v, w) in edges {
+            if u >= n || v >= n {
+                return Err(PyIndexError::new_err(format!(
+                    "Edge ({u}, {v}) references node index outside allocated range [0, {n})"
+                )));
+            }
             g.add_edge(NodeIndex::new(u), NodeIndex::new(v), w);
         }
         Ok(DiGraph { inner: g })
@@ -306,7 +340,7 @@ impl DiGraph {
         let edge_costs = extract_edge_costs(&self.inner, py)?;
         let res = py.detach(|| {
             algo::dijkstra(&self.inner, NodeIndex::new(start), None, |e| {
-                *edge_costs.get(&e.id()).unwrap()
+                edge_costs[e.id().index()]
             })
         });
         Ok(res.into_iter().map(|(n, d)| (n.index(), d)).collect())
@@ -314,8 +348,7 @@ impl DiGraph {
 
     fn floyd_warshall(&self, py: Python<'_>) -> PyResult<HashMap<usize, HashMap<usize, f64>>> {
         let edge_costs = extract_edge_costs(&self.inner, py)?;
-        let res =
-            py.detach(|| algo::floyd_warshall(&self.inner, |e| *edge_costs.get(&e.id()).unwrap()));
+        let res = py.detach(|| algo::floyd_warshall(&self.inner, |e| edge_costs[e.id().index()]));
         match res {
             Ok(map) => Ok(finalize_floyd_warshall(
                 map.into_iter()
@@ -342,7 +375,7 @@ impl DiGraph {
         }
 
         let edge_costs = if let Some(wf) = weight_fn {
-            let mut costs = HashMap::with_capacity(self.inner.edge_count());
+            let mut costs = vec![0.0f64; self.inner.edge_bound()];
             for edge in self.inner.edge_references() {
                 let cost: f64 = wf
                     .call1(
@@ -355,7 +388,7 @@ impl DiGraph {
                     )?
                     .bind(py)
                     .extract()?;
-                costs.insert(edge.id(), cost);
+                costs[edge.id().index()] = cost;
             }
             costs
         } else {
@@ -368,7 +401,7 @@ impl DiGraph {
                 NodeIndex::new(start),
                 Some(NodeIndex::new(goal)),
                 k,
-                |e| *edge_costs.get(&e.id()).unwrap(),
+                |e| edge_costs[e.id().index()],
             )
         });
         Ok(res.into_iter().map(|(n, d)| (n.index(), d)).collect())
@@ -400,7 +433,7 @@ impl DiGraph {
                 &self.inner,
                 NodeIndex::new(start),
                 |finish| finish.index() == goal,
-                |e| *edge_costs.get(&e.id()).unwrap(),
+                |e| edge_costs[e.id().index()],
                 |n| h_values[n.index()],
             )
         });
@@ -517,6 +550,9 @@ impl DiGraph {
     }
     fn __contains__(&self, index: usize) -> bool {
         self.inner.node_weight(NodeIndex::new(index)).is_some()
+    }
+    fn __iter__(&self) -> Vec<usize> {
+        self.inner.node_indices().map(|n| n.index()).collect()
     }
 }
 
@@ -675,6 +711,12 @@ impl UnGraph {
     }
     fn __bool__(&self) -> bool {
         self.inner.node_count() > 0
+    }
+    fn __contains__(&self, index: usize) -> bool {
+        self.inner.node_weight(NodeIndex::new(index)).is_some()
+    }
+    fn __iter__(&self) -> Vec<usize> {
+        self.inner.node_indices().map(|n| n.index()).collect()
     }
 }
 
@@ -921,6 +963,12 @@ impl FastDiGraph {
     }
     fn __bool__(&self) -> bool {
         self.inner.node_count() > 0
+    }
+    fn __contains__(&self, index: usize) -> bool {
+        self.inner.node_weight(NodeIndex::new(index)).is_some()
+    }
+    fn __iter__(&self) -> Vec<usize> {
+        self.inner.node_indices().map(|n| n.index()).collect()
     }
 }
 
