@@ -12,20 +12,20 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::fmt::Write;
 
-type PetDiGraph = petgraph::Graph<PyObject, PyObject, Directed>;
-type PetUnGraph = petgraph::Graph<PyObject, PyObject, Undirected>;
-type PetStableDiGraph = StableGraph<PyObject, PyObject, Directed>;
-type PetFastDiGraph = petgraph::Graph<PyObject, f64, Directed>;
-type PetGraphMap = GraphMap<i32, PyObject, Undirected>;
-type PetDiGraphMap = GraphMap<i32, PyObject, Directed>;
-type PetMatrixGraph = MatrixGraph<PyObject, f64, Directed>;
+type PetDiGraph = petgraph::Graph<Py<PyAny>, Py<PyAny>, Directed>;
+type PetUnGraph = petgraph::Graph<Py<PyAny>, Py<PyAny>, Undirected>;
+type PetStableDiGraph = StableGraph<Py<PyAny>, Py<PyAny>, Directed>;
+type PetFastDiGraph = petgraph::Graph<Py<PyAny>, f64, Directed>;
+type PetGraphMap = GraphMap<i32, Py<PyAny>, Undirected>;
+type PetDiGraphMap = GraphMap<i32, Py<PyAny>, Directed>;
+type PetMatrixGraph = MatrixGraph<Py<PyAny>, f64, Directed>;
 type PetCsrGraph = Csr<(), f64>;
 
 /// Pre-extracts edge weights to f64 to enable GIL-free algorithm execution.
 fn extract_edge_costs(graph: &PetDiGraph, py: Python<'_>) -> PyResult<HashMap<EdgeIndex, f64>> {
     let mut costs = HashMap::with_capacity(graph.edge_count());
     for edge in graph.edge_references() {
-        let w: f64 = edge.weight().extract::<f64>(py).map_err(|_| {
+        let w: f64 = edge.weight().bind(py).extract::<f64>().map_err(|_| {
             PyValueError::new_err(format!(
                 "Edge ({}, {}) weight cannot be converted to float",
                 edge.source().index(),
@@ -37,8 +37,12 @@ fn extract_edge_costs(graph: &PetDiGraph, py: Python<'_>) -> PyResult<HashMap<Ed
     Ok(costs)
 }
 
-fn py_obj_to_label(w: &PyObject, py: Python<'_>) -> String {
-    w.bind(py).str().map(|s| s.to_string()).unwrap_or_default()
+fn py_obj_to_label(w: &Py<PyAny>, py: Python<'_>) -> String {
+    w.bind(py)
+        .str()
+        .and_then(|s| s.to_str().map(|s| s.to_string()))
+        .ok()
+        .unwrap_or_default()
 }
 
 // ════════════════════════════════════════════════════════════
@@ -103,9 +107,9 @@ impl DiGraph {
     #[pyo3(signature = (edges, node_count=None))]
     fn from_edges(
         py: Python<'_>,
-        edges: Vec<(usize, usize, PyObject)>,
+        edges: Vec<(usize, usize, Py<PyAny>)>,
         node_count: Option<usize>,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let n = node_count.unwrap_or_else(|| {
             edges
                 .iter()
@@ -115,23 +119,23 @@ impl DiGraph {
         });
         let mut g = PetDiGraph::with_capacity(n, edges.len());
         for i in 0..n {
-            g.add_node(i.into_pyobject(py).unwrap().into_any().unbind());
+            g.add_node(i.into_pyobject(py)?.into_any().unbind());
         }
         for (u, v, w) in edges {
             g.add_edge(NodeIndex::new(u), NodeIndex::new(v), w);
         }
-        DiGraph { inner: g }
+        Ok(DiGraph { inner: g })
     }
 
-    fn add_node(&mut self, weight: PyObject) -> usize {
+    fn add_node(&mut self, weight: Py<PyAny>) -> usize {
         self.inner.add_node(weight).index()
     }
 
-    fn remove_node(&mut self, index: usize) -> Option<PyObject> {
+    fn remove_node(&mut self, index: usize) -> Option<Py<PyAny>> {
         self.inner.remove_node(NodeIndex::new(index))
     }
 
-    fn add_edge(&mut self, u: usize, v: usize, weight: PyObject) -> PyResult<usize> {
+    fn add_edge(&mut self, u: usize, v: usize, weight: Py<PyAny>) -> PyResult<usize> {
         if self.inner.node_weight(NodeIndex::new(u)).is_none()
             || self.inner.node_weight(NodeIndex::new(v)).is_none()
         {
@@ -143,13 +147,13 @@ impl DiGraph {
             .index())
     }
 
-    fn update_edge(&mut self, u: usize, v: usize, weight: PyObject) -> usize {
+    fn update_edge(&mut self, u: usize, v: usize, weight: Py<PyAny>) -> usize {
         self.inner
             .update_edge(NodeIndex::new(u), NodeIndex::new(v), weight)
             .index()
     }
 
-    fn remove_edge(&mut self, index: usize) -> Option<PyObject> {
+    fn remove_edge(&mut self, index: usize) -> Option<Py<PyAny>> {
         self.inner.remove_edge(EdgeIndex::new(index))
     }
 
@@ -178,13 +182,13 @@ impl DiGraph {
         true
     }
 
-    fn node_weight(&self, py: Python<'_>, index: usize) -> Option<PyObject> {
+    fn node_weight(&self, py: Python<'_>, index: usize) -> Option<Py<PyAny>> {
         self.inner
             .node_weight(NodeIndex::new(index))
             .map(|w| w.clone_ref(py))
     }
 
-    fn edge_weight(&self, py: Python<'_>, index: usize) -> Option<PyObject> {
+    fn edge_weight(&self, py: Python<'_>, index: usize) -> Option<Py<PyAny>> {
         self.inner
             .edge_weight(EdgeIndex::new(index))
             .map(|w| w.clone_ref(py))
@@ -242,11 +246,11 @@ impl DiGraph {
     }
 
     fn is_cyclic(&self, py: Python<'_>) -> bool {
-        py.allow_threads(|| algo::is_cyclic_directed(&self.inner))
+        py.detach(|| algo::is_cyclic_directed(&self.inner))
     }
 
     fn toposort(&self, py: Python<'_>) -> PyResult<Vec<usize>> {
-        let res = py.allow_threads(|| algo::toposort(&self.inner, None));
+        let res = py.detach(|| algo::toposort(&self.inner, None));
         match res {
             Ok(nodes) => Ok(nodes.into_iter().map(|n| n.index()).collect()),
             Err(_) => Err(PyValueError::new_err("Graph has a cycle")),
@@ -258,7 +262,7 @@ impl DiGraph {
             return Err(PyIndexError::new_err("Start node index out of range"));
         }
         let edge_costs = extract_edge_costs(&self.inner, py)?;
-        let res = py.allow_threads(|| {
+        let res = py.detach(|| {
             algo::dijkstra(&self.inner, NodeIndex::new(start), None, |e| {
                 *edge_costs.get(&e.id()).unwrap()
             })
@@ -268,7 +272,7 @@ impl DiGraph {
 
     fn floyd_warshall(&self, py: Python<'_>) -> PyResult<HashMap<usize, HashMap<usize, f64>>> {
         let edge_costs = extract_edge_costs(&self.inner, py)?;
-        let res = py.allow_threads(|| {
+        let res = py.detach(|| {
             algo::floyd_warshall(&self.inner, |e| *edge_costs.get(&e.id()).unwrap())
         });
         match res {
@@ -292,7 +296,7 @@ impl DiGraph {
         start: usize,
         goal: usize,
         k: usize,
-        weight_fn: Option<PyObject>,
+        weight_fn: Option<Py<PyAny>>,
     ) -> PyResult<HashMap<usize, f64>> {
         if self.inner.node_weight(NodeIndex::new(start)).is_none()
             || self.inner.node_weight(NodeIndex::new(goal)).is_none()
@@ -305,7 +309,7 @@ impl DiGraph {
             for edge in self.inner.edge_references() {
                 let cost: f64 = wf
                     .call1(py, (edge.source().index(), edge.target().index(), edge.weight().clone_ref(py)))?
-                    .extract(py)?;
+                    .bind(py).extract()?;
                 costs.insert(edge.id(), cost);
             }
             costs
@@ -313,7 +317,7 @@ impl DiGraph {
             extract_edge_costs(&self.inner, py)?
         };
 
-        let res = py.allow_threads(|| {
+        let res = py.detach(|| {
             algo::k_shortest_path(
                 &self.inner,
                 NodeIndex::new(start),
@@ -330,7 +334,7 @@ impl DiGraph {
         py: Python<'_>,
         start: usize,
         goal: usize,
-        heuristic: PyObject,
+        heuristic: Py<PyAny>,
     ) -> PyResult<Option<(f64, Vec<usize>)>> {
         if self.inner.node_weight(NodeIndex::new(start)).is_none()
             || self.inner.node_weight(NodeIndex::new(goal)).is_none()
@@ -338,15 +342,15 @@ impl DiGraph {
             return Err(PyIndexError::new_err("Node index out of range"));
         }
         let edge_costs = extract_edge_costs(&self.inner, py)?;
-        /// Pre-compute heuristic for all nodes to enable safe GIL release during search.
+        // Pre-compute heuristic for all nodes to enable safe GIL release during search.
         let mut h_values = vec![0.0f64; self.inner.node_bound()];
         for idx in self.inner.node_indices() {
             h_values[idx.index()] = heuristic
                 .call1(py, (idx.index(),))
-                .and_then(|v| v.extract::<f64>(py))
+                .and_then(|v| v.bind(py).extract::<f64>())
                 .unwrap_or(0.0);
         }
-        let res = py.allow_threads(|| {
+        let res = py.detach(|| {
             algo::astar(
                 &self.inner,
                 NodeIndex::new(start),
@@ -359,7 +363,7 @@ impl DiGraph {
     }
 
     fn tarjan_scc(&self, py: Python<'_>) -> Vec<Vec<usize>> {
-        py.allow_threads(|| {
+        py.detach(|| {
             algo::tarjan_scc(&self.inner)
                 .into_iter()
                 .map(|scc| scc.into_iter().map(|n| n.index()).collect())
@@ -368,7 +372,7 @@ impl DiGraph {
     }
 
     fn kosaraju_scc(&self, py: Python<'_>) -> Vec<Vec<usize>> {
-        py.allow_threads(|| {
+        py.detach(|| {
             algo::kosaraju_scc(&self.inner)
                 .into_iter()
                 .map(|scc| scc.into_iter().map(|n| n.index()).collect())
@@ -390,7 +394,7 @@ impl DiGraph {
         {
             return Err(PyIndexError::new_err("Node index out of range"));
         }
-        Ok(py.allow_threads(|| {
+        Ok(py.detach(|| {
             algo::all_simple_paths::<Vec<_>, _>(
                 &self.inner,
                 NodeIndex::new(from_node),
@@ -404,7 +408,7 @@ impl DiGraph {
     }
 
     fn has_path_connecting(&self, py: Python<'_>, from: usize, to: usize) -> bool {
-        py.allow_threads(|| {
+        py.detach(|| {
             algo::has_path_connecting(&self.inner, NodeIndex::new(from), NodeIndex::new(to), None)
         })
     }
@@ -415,7 +419,7 @@ impl DiGraph {
         let mut weights = Vec::with_capacity(self.inner.edge_count());
 
         for edge in self.inner.edge_references() {
-            let w: f64 = edge.weight().extract::<f64>(py).unwrap_or(1.0);
+            let w: f64 = edge.weight().bind(py).extract::<f64>().unwrap_or(1.0);
             u_indices.push(edge.source().index() as u32);
             v_indices.push(edge.target().index() as u32);
             weights.push(w);
@@ -425,7 +429,7 @@ impl DiGraph {
 
     #[pyo3(signature = (damping_factor=0.85, iterations=100))]
     fn page_rank(&self, py: Python<'_>, damping_factor: f64, iterations: usize) -> Vec<f64> {
-        py.allow_threads(|| algo::page_rank(&self.inner, damping_factor, iterations))
+        py.detach(|| algo::page_rank(&self.inner, damping_factor, iterations))
     }
 
     fn to_dot(&self, py: Python<'_>) -> String {
@@ -490,15 +494,15 @@ impl UnGraph {
         }
     }
 
-    fn add_node(&mut self, weight: PyObject) -> usize {
+    fn add_node(&mut self, weight: Py<PyAny>) -> usize {
         self.inner.add_node(weight).index()
     }
 
-    fn remove_node(&mut self, index: usize) -> Option<PyObject> {
+    fn remove_node(&mut self, index: usize) -> Option<Py<PyAny>> {
         self.inner.remove_node(NodeIndex::new(index))
     }
 
-    fn add_edge(&mut self, u: usize, v: usize, weight: PyObject) -> PyResult<usize> {
+    fn add_edge(&mut self, u: usize, v: usize, weight: Py<PyAny>) -> PyResult<usize> {
         if self.inner.node_weight(NodeIndex::new(u)).is_none()
             || self.inner.node_weight(NodeIndex::new(v)).is_none()
         {
@@ -532,7 +536,7 @@ impl UnGraph {
     }
 
     fn connected_components(&self, py: Python<'_>) -> usize {
-        py.allow_threads(|| algo::connected_components(&self.inner))
+        py.detach(|| algo::connected_components(&self.inner))
     }
 
     fn bfs(&self, start: usize) -> Vec<usize> {
@@ -554,13 +558,13 @@ impl UnGraph {
     }
 
     fn has_path_connecting(&self, py: Python<'_>, from: usize, to: usize) -> bool {
-        py.allow_threads(|| {
+        py.detach(|| {
             algo::has_path_connecting(&self.inner, NodeIndex::new(from), NodeIndex::new(to), None)
         })
     }
 
     fn is_bipartite(&self, py: Python<'_>, start: usize) -> bool {
-        py.allow_threads(|| algo::is_bipartite_undirected(&self.inner, NodeIndex::new(start)))
+        py.detach(|| algo::is_bipartite_undirected(&self.inner, NodeIndex::new(start)))
     }
 
     fn to_dot(&self, py: Python<'_>) -> String {
@@ -622,7 +626,7 @@ impl FastDiGraph {
         }
     }
 
-    fn add_node(&mut self, weight: PyObject) -> usize {
+    fn add_node(&mut self, weight: Py<PyAny>) -> usize {
         self.inner.add_node(weight).index()
     }
 
@@ -647,7 +651,7 @@ impl FastDiGraph {
         self.inner.edge_count()
     }
 
-    fn node_weight(&self, py: Python<'_>, index: usize) -> Option<PyObject> {
+    fn node_weight(&self, py: Python<'_>, index: usize) -> Option<Py<PyAny>> {
         self.inner
             .node_weight(NodeIndex::new(index))
             .map(|w| w.clone_ref(py))
@@ -657,7 +661,7 @@ impl FastDiGraph {
         if self.inner.node_weight(NodeIndex::new(start)).is_none() {
             return Err(PyIndexError::new_err("Start node index out of range"));
         }
-        let res = py.allow_threads(|| {
+        let res = py.detach(|| {
             algo::dijkstra(&self.inner, NodeIndex::new(start), None, |e| *e.weight())
         });
         Ok(res.into_iter().map(|(n, d)| (n.index(), d)).collect())
@@ -667,7 +671,7 @@ impl FastDiGraph {
         if self.inner.node_weight(NodeIndex::new(start)).is_none() {
             return Err(PyIndexError::new_err("Start node index out of range"));
         }
-        let result = py.allow_threads(|| algo::bellman_ford(&self.inner, NodeIndex::new(start)));
+        let result = py.detach(|| algo::bellman_ford(&self.inner, NodeIndex::new(start)));
         match result {
             Ok(paths) => Ok(paths.distances.into_iter().enumerate().collect()),
             Err(_) => Err(PyValueError::new_err("Negative cycle detected")),
@@ -675,7 +679,7 @@ impl FastDiGraph {
     }
 
     fn floyd_warshall(&self, py: Python<'_>) -> PyResult<HashMap<usize, HashMap<usize, f64>>> {
-        let res = py.allow_threads(|| algo::floyd_warshall(&self.inner, |e| *e.weight()));
+        let res = py.detach(|| algo::floyd_warshall(&self.inner, |e| *e.weight()));
         match res {
             Ok(map) => {
                 let mut out: HashMap<usize, HashMap<usize, f64>> = HashMap::new();
@@ -695,7 +699,7 @@ impl FastDiGraph {
         py: Python<'_>,
         start: usize,
         goal: usize,
-        heuristic: PyObject,
+        heuristic: Py<PyAny>,
     ) -> PyResult<Option<(f64, Vec<usize>)>> {
         if self.inner.node_weight(NodeIndex::new(start)).is_none()
             || self.inner.node_weight(NodeIndex::new(goal)).is_none()
@@ -706,10 +710,10 @@ impl FastDiGraph {
         for idx in self.inner.node_indices() {
             h_values[idx.index()] = heuristic
                 .call1(py, (idx.index(),))
-                .and_then(|v| v.extract::<f64>(py))
+                .and_then(|v| v.bind(py).extract::<f64>())
                 .unwrap_or(0.0);
         }
-        let res = py.allow_threads(|| {
+        let res = py.detach(|| {
             algo::astar(
                 &self.inner,
                 NodeIndex::new(start),
@@ -722,11 +726,11 @@ impl FastDiGraph {
     }
 
     fn is_cyclic(&self, py: Python<'_>) -> bool {
-        py.allow_threads(|| algo::is_cyclic_directed(&self.inner))
+        py.detach(|| algo::is_cyclic_directed(&self.inner))
     }
 
     fn toposort(&self, py: Python<'_>) -> PyResult<Vec<usize>> {
-        let res = py.allow_threads(|| algo::toposort(&self.inner, None));
+        let res = py.detach(|| algo::toposort(&self.inner, None));
         match res {
             Ok(nodes) => Ok(nodes.into_iter().map(|n| n.index()).collect()),
             Err(_) => Err(PyValueError::new_err("Graph has a cycle")),
@@ -734,7 +738,7 @@ impl FastDiGraph {
     }
 
     fn tarjan_scc(&self, py: Python<'_>) -> Vec<Vec<usize>> {
-        py.allow_threads(|| {
+        py.detach(|| {
             algo::tarjan_scc(&self.inner)
                 .into_iter()
                 .map(|scc| scc.into_iter().map(|n| n.index()).collect())
@@ -743,7 +747,7 @@ impl FastDiGraph {
     }
 
     fn has_path_connecting(&self, py: Python<'_>, from: usize, to: usize) -> bool {
-        py.allow_threads(|| {
+        py.detach(|| {
             algo::has_path_connecting(&self.inner, NodeIndex::new(from), NodeIndex::new(to), None)
         })
     }
@@ -763,7 +767,7 @@ impl FastDiGraph {
 
     #[pyo3(signature = (damping_factor=0.85, iterations=100))]
     fn page_rank(&self, py: Python<'_>, damping_factor: f64, iterations: usize) -> Vec<f64> {
-        py.allow_threads(|| algo::page_rank(&self.inner, damping_factor, iterations))
+        py.detach(|| algo::page_rank(&self.inner, damping_factor, iterations))
     }
 
     fn bfs(&self, start: usize) -> Vec<usize> {
@@ -798,7 +802,7 @@ impl FastDiGraph {
         {
             return Err(PyIndexError::new_err("Node index out of range"));
         }
-        Ok(py.allow_threads(|| {
+        Ok(py.detach(|| {
             algo::all_simple_paths::<Vec<_>, _>(
                 &self.inner,
                 NodeIndex::new(from_node),
@@ -869,13 +873,13 @@ impl StableDiGraph {
         }
     }
 
-    fn add_node(&mut self, weight: PyObject) -> usize {
+    fn add_node(&mut self, weight: Py<PyAny>) -> usize {
         self.inner.add_node(weight).index()
     }
-    fn remove_node(&mut self, index: usize) -> Option<PyObject> {
+    fn remove_node(&mut self, index: usize) -> Option<Py<PyAny>> {
         self.inner.remove_node(NodeIndex::new(index))
     }
-    fn add_edge(&mut self, u: usize, v: usize, weight: PyObject) -> PyResult<usize> {
+    fn add_edge(&mut self, u: usize, v: usize, weight: Py<PyAny>) -> PyResult<usize> {
         if u >= self.inner.node_bound() || v >= self.inner.node_bound() {
             return Err(PyIndexError::new_err("Node index out of range"));
         }
@@ -889,7 +893,7 @@ impl StableDiGraph {
             .add_edge(NodeIndex::new(u), NodeIndex::new(v), weight)
             .index())
     }
-    fn remove_edge(&mut self, index: usize) -> Option<PyObject> {
+    fn remove_edge(&mut self, index: usize) -> Option<Py<PyAny>> {
         self.inner.remove_edge(EdgeIndex::new(index))
     }
     fn contains_node(&self, index: usize) -> bool {
@@ -947,10 +951,10 @@ impl IntGraphMap {
     fn remove_node(&mut self, node: i32) -> bool {
         self.inner.remove_node(node)
     }
-    fn add_edge(&mut self, u: i32, v: i32, weight: PyObject) {
+    fn add_edge(&mut self, u: i32, v: i32, weight: Py<PyAny>) {
         self.inner.add_edge(u, v, weight);
     }
-    fn remove_edge(&mut self, u: i32, v: i32) -> Option<PyObject> {
+    fn remove_edge(&mut self, u: i32, v: i32) -> Option<Py<PyAny>> {
         self.inner.remove_edge(u, v)
     }
 
@@ -976,7 +980,7 @@ impl IntGraphMap {
     fn all_nodes(&self) -> Vec<i32> {
         self.inner.nodes().collect()
     }
-    fn all_edges(&self, py: Python<'_>) -> Vec<(i32, i32, PyObject)> {
+    fn all_edges(&self, py: Python<'_>) -> Vec<(i32, i32, Py<PyAny>)> {
         self.inner
             .all_edges()
             .map(|(u, v, w)| (u, v, w.clone_ref(py)))
@@ -1025,10 +1029,10 @@ impl IntDiGraphMap {
     fn remove_node(&mut self, node: i32) -> bool {
         self.inner.remove_node(node)
     }
-    fn add_edge(&mut self, u: i32, v: i32, weight: PyObject) {
+    fn add_edge(&mut self, u: i32, v: i32, weight: Py<PyAny>) {
         self.inner.add_edge(u, v, weight);
     }
-    fn remove_edge(&mut self, u: i32, v: i32) -> Option<PyObject> {
+    fn remove_edge(&mut self, u: i32, v: i32) -> Option<Py<PyAny>> {
         self.inner.remove_edge(u, v)
     }
 
@@ -1061,7 +1065,8 @@ impl IntDiGraphMap {
         }
         let res = algo::dijkstra(&self.inner, start, None, |e| {
             e.weight()
-                .extract::<f64>(py)
+                .bind(py)
+                .extract::<f64>()
                 .map_err(|_| PyValueError::new_err("Edge weight cannot be converted to float"))
                 .unwrap_or(1.0)
         });
@@ -1101,7 +1106,7 @@ impl MatrixDiGraph {
         }
     }
 
-    fn add_node(&mut self, weight: PyObject) -> usize {
+    fn add_node(&mut self, weight: Py<PyAny>) -> usize {
         self.inner.add_node(weight).index()
     }
 
@@ -1140,7 +1145,7 @@ impl MatrixDiGraph {
         if start >= self.inner.node_count() {
             return Err(PyIndexError::new_err("Start node index out of range"));
         }
-        let res = py.allow_threads(|| {
+        let res = py.detach(|| {
             algo::dijkstra(&self.inner, NodeIndex::new(start), None, |e| *e.weight())
         });
         Ok(res.into_iter().map(|(n, d)| (n.index(), d)).collect())
@@ -1150,7 +1155,7 @@ impl MatrixDiGraph {
         if start >= self.inner.node_count() {
             return Err(PyIndexError::new_err("Start node index out of range"));
         }
-        let result = py.allow_threads(|| algo::bellman_ford(&self.inner, NodeIndex::new(start)));
+        let result = py.detach(|| algo::bellman_ford(&self.inner, NodeIndex::new(start)));
         match result {
             Ok(paths) => Ok(paths.distances.into_iter().enumerate().collect()),
             Err(_) => Err(PyValueError::new_err("Negative cycle detected")),
@@ -1219,7 +1224,7 @@ impl CsrGraph {
             return Err(PyIndexError::new_err("Start node index out of range"));
         }
         let res =
-            py.allow_threads(|| algo::dijkstra(&self.inner, start as u32, None, |e| *e.weight()));
+            py.detach(|| algo::dijkstra(&self.inner, start as u32, None, |e| *e.weight()));
         Ok(res.into_iter().map(|(n, d)| (n as usize, d)).collect())
     }
 
@@ -1227,7 +1232,7 @@ impl CsrGraph {
         if start >= self.inner.node_count() {
             return Err(PyIndexError::new_err("Start node index out of range"));
         }
-        let result = py.allow_threads(|| algo::bellman_ford(&self.inner, start as u32));
+        let result = py.detach(|| algo::bellman_ford(&self.inner, start as u32));
         match result {
             Ok(paths) => Ok(paths.distances.into_iter().enumerate().collect()),
             Err(_) => Err(PyValueError::new_err("Negative cycle detected")),
@@ -1235,7 +1240,7 @@ impl CsrGraph {
     }
 
     fn floyd_warshall(&self, py: Python<'_>) -> PyResult<HashMap<usize, HashMap<usize, f64>>> {
-        let res = py.allow_threads(|| algo::floyd_warshall(&self.inner, |e| *e.weight()));
+        let res = py.detach(|| algo::floyd_warshall(&self.inner, |e| *e.weight()));
         match res {
             Ok(map) => {
                 let mut out: HashMap<usize, HashMap<usize, f64>> = HashMap::new();
@@ -1271,7 +1276,7 @@ impl CsrGraph {
 
 #[pyfunction]
 fn is_isomorphic(py: Python<'_>, g1: &DiGraph, g2: &DiGraph) -> bool {
-    py.allow_threads(|| algo::is_isomorphic(&g1.inner, &g2.inner))
+    py.detach(|| algo::is_isomorphic(&g1.inner, &g2.inner))
 }
 
 // ════════════════════════════════════════════════════════════
