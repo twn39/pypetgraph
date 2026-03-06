@@ -26,6 +26,7 @@ def large_graph_data():
 # Dijkstra Benchmarks
 # ════════════════════════════════════════════════════════════
 
+@pytest.mark.benchmark
 def test_benchmark_nx_dijkstra(benchmark, large_graph_data):
     n, edges = large_graph_data
     G = nx.DiGraph()
@@ -37,6 +38,7 @@ def test_benchmark_nx_dijkstra(benchmark, large_graph_data):
 
     benchmark.pedantic(run, rounds=10, iterations=1)
 
+@pytest.mark.benchmark
 def test_benchmark_pg_digraph_dijkstra(benchmark, large_graph_data):
     n, edges = large_graph_data
     g = DiGraph()
@@ -50,6 +52,7 @@ def test_benchmark_pg_digraph_dijkstra(benchmark, large_graph_data):
 
     benchmark.pedantic(run, rounds=10, iterations=1)
 
+@pytest.mark.benchmark
 def test_benchmark_pg_fast_digraph_dijkstra(benchmark, large_graph_data):
     n, edges = large_graph_data
     g = FastDiGraph()
@@ -67,6 +70,7 @@ def test_benchmark_pg_fast_digraph_dijkstra(benchmark, large_graph_data):
 # PageRank Benchmarks
 # ════════════════════════════════════════════════════════════
 
+@pytest.mark.benchmark
 def test_benchmark_nx_pagerank(benchmark, large_graph_data):
     n, edges = large_graph_data
     G = nx.DiGraph()
@@ -79,6 +83,7 @@ def test_benchmark_nx_pagerank(benchmark, large_graph_data):
 
     benchmark.pedantic(run, rounds=5, iterations=1)
 
+@pytest.mark.benchmark
 def test_benchmark_pg_fast_digraph_pagerank(benchmark, large_graph_data):
     n, edges = large_graph_data
     g = FastDiGraph()
@@ -96,6 +101,7 @@ def test_benchmark_pg_fast_digraph_pagerank(benchmark, large_graph_data):
 # Memory Benchmark (More accurate with larger scale)
 # ════════════════════════════════════════════════════════════
 
+@pytest.mark.benchmark
 def test_memory_usage_info():
     # Use 100,000 nodes and 1,000,000 edges for distinct memory measurement
     n = 100_000
