@@ -36,7 +36,9 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Run Tests with Coverage
-        run: uv run pytest --cov=pypetgraph --cov-report=xml
+        env:
+          RUSTC_WRAPPER: ""
+        run: uv run pytest -m "not benchmark" --cov=pypetgraph --cov-report=xml
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -64,10 +66,12 @@ jobs:
           manylinux: auto
       - name: Test wheels
         if: matrix.target == 'x86_64'
+        env:
+          RUSTC_WRAPPER: ""
         run: |
           uv venv
           uv pip install pypetgraph pytest pytest-asyncio networkx numpy scipy psutil --find-links dist --force-reinstall
-          uv run pytest tests/test_pypetgraph.py
+          uv run --no-project pytest -m "not benchmark"
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -89,10 +93,12 @@ jobs:
           sccache: 'true'
           maturin-version: latest
       - name: Test wheels
+        env:
+          RUSTC_WRAPPER: ""
         run: |
           uv venv
           uv pip install pypetgraph pytest pytest-asyncio networkx numpy scipy psutil --find-links dist --force-reinstall
-          uv run pytest tests/test_pypetgraph.py
+          uv run --no-project pytest -m "not benchmark"
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -117,10 +123,12 @@ jobs:
           sccache: 'true'
           maturin-version: latest
       - name: Test wheels
+        env:
+          RUSTC_WRAPPER: ""
         run: |
           uv venv
           uv pip install pypetgraph pytest pytest-asyncio networkx numpy scipy psutil --find-links dist --force-reinstall
-          uv run pytest tests/test_pypetgraph.py
+          uv run --no-project pytest -m "not benchmark"
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
