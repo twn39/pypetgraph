@@ -16,6 +16,7 @@ jobs:
   test:
     name: Test - ${{ matrix.os }} - Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
+    if: github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
     strategy:
       fail-fast: false
       matrix:
@@ -56,6 +57,12 @@ jobs:
           sccache: 'true'
           maturin-version: latest
           manylinux: auto
+      - name: Test wheels
+        if: matrix.target == 'x86_64'
+        run: |
+          pip install pypetgraph --no-index --find-links dist --force-reinstall
+          pip install pytest pytest-asyncio networkx numpy scipy psutil
+          pytest tests/test_pypetgraph.py
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -74,6 +81,11 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           maturin-version: latest
+      - name: Test wheels
+        run: |
+          pip install pypetgraph --no-index --find-links dist --force-reinstall
+          pip install pytest pytest-asyncio networkx numpy scipy psutil
+          pytest tests/test_pypetgraph.py
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -95,6 +107,11 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           maturin-version: latest
+      - name: Test wheels
+        run: |
+          pip install pypetgraph --no-index --find-links dist --force-reinstall
+          pip install pytest pytest-asyncio networkx numpy scipy psutil
+          pytest tests/test_pypetgraph.py
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
