@@ -1,6 +1,6 @@
 [project]
 name = "pypetgraph"
-version = "0.1.0"
+version = "1.0.0"
 description = "High-performance Python bindings for the Rust petgraph library with asyncio support"
 readme = "README.md"
 authors = [
