@@ -21,8 +21,7 @@ type PetDiGraphMap = GraphMap<i32, PyObject, Directed>;
 type PetMatrixGraph = MatrixGraph<PyObject, f64, Directed>;
 type PetCsrGraph = Csr<(), f64>;
 
-// ── Helper: pre-extract PyObject edge weights to f64 ──
-
+/// Pre-extracts edge weights to f64 to enable GIL-free algorithm execution.
 fn extract_edge_costs(graph: &PetDiGraph, py: Python<'_>) -> PyResult<HashMap<EdgeIndex, f64>> {
     let mut costs = HashMap::with_capacity(graph.edge_count());
     for edge in graph.edge_references() {
@@ -82,7 +81,7 @@ impl UnionFind {
 }
 
 // ════════════════════════════════════════════════════════════
-// DiGraph — fully-featured directed graph
+// DiGraph
 // ════════════════════════════════════════════════════════════
 
 #[pyclass]
@@ -92,8 +91,6 @@ pub struct DiGraph {
 
 #[pymethods]
 impl DiGraph {
-    // ── construction ──
-
     #[new]
     #[pyo3(signature = (nodes=0, edges=0))]
     fn new(nodes: usize, edges: usize) -> Self {
@@ -125,8 +122,6 @@ impl DiGraph {
         }
         DiGraph { inner: g }
     }
-
-    // ── mutation ──
 
     fn add_node(&mut self, weight: PyObject) -> usize {
         self.inner.add_node(weight).index()
@@ -170,8 +165,6 @@ impl DiGraph {
         self.inner.reverse();
     }
 
-    // ── properties ──
-
     #[getter]
     fn node_count(&self) -> usize {
         self.inner.node_count()
@@ -184,8 +177,6 @@ impl DiGraph {
     fn is_directed(&self) -> bool {
         true
     }
-
-    // ── queries ──
 
     fn node_weight(&self, py: Python<'_>, index: usize) -> Option<PyObject> {
         self.inner
@@ -232,8 +223,6 @@ impl DiGraph {
         self.inner.edge_indices().map(|e| e.index()).collect()
     }
 
-    // ── traversal ──
-
     fn bfs(&self, start: usize) -> Vec<usize> {
         let mut bfs = Bfs::new(&self.inner, NodeIndex::new(start));
         let mut res = Vec::with_capacity(self.inner.node_count());
@@ -251,8 +240,6 @@ impl DiGraph {
         }
         res
     }
-
-    // ── algorithms ──
 
     fn is_cyclic(&self, py: Python<'_>) -> bool {
         py.allow_threads(|| algo::is_cyclic_directed(&self.inner))
@@ -351,7 +338,7 @@ impl DiGraph {
             return Err(PyIndexError::new_err("Node index out of range"));
         }
         let edge_costs = extract_edge_costs(&self.inner, py)?;
-        // Pre-compute heuristic for all nodes to allow GIL release
+        /// Pre-compute heuristic for all nodes to enable safe GIL release during search.
         let mut h_values = vec![0.0f64; self.inner.node_bound()];
         for idx in self.inner.node_indices() {
             h_values[idx.index()] = heuristic
@@ -422,12 +409,24 @@ impl DiGraph {
         })
     }
 
+    fn to_scipy_coo(&self, py: Python<'_>) -> PyResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        let mut u_indices = Vec::with_capacity(self.inner.edge_count());
+        let mut v_indices = Vec::with_capacity(self.inner.edge_count());
+        let mut weights = Vec::with_capacity(self.inner.edge_count());
+
+        for edge in self.inner.edge_references() {
+            let w: f64 = edge.weight().extract::<f64>(py).unwrap_or(1.0);
+            u_indices.push(edge.source().index() as u32);
+            v_indices.push(edge.target().index() as u32);
+            weights.push(w);
+        }
+        Ok((u_indices, v_indices, weights))
+    }
+
     #[pyo3(signature = (damping_factor=0.85, iterations=100))]
     fn page_rank(&self, py: Python<'_>, damping_factor: f64, iterations: usize) -> Vec<f64> {
         py.allow_threads(|| algo::page_rank(&self.inner, damping_factor, iterations))
     }
-
-    // ── output ──
 
     fn to_dot(&self, py: Python<'_>) -> String {
         let mut s = String::from("digraph {\n");
@@ -454,8 +453,6 @@ impl DiGraph {
         s
     }
 
-    // ── Python protocols ──
-
     fn __repr__(&self) -> String {
         format!(
             "DiGraph(nodes={}, edges={})",
@@ -475,7 +472,7 @@ impl DiGraph {
 }
 
 // ════════════════════════════════════════════════════════════
-// UnGraph — undirected graph
+// UnGraph
 // ════════════════════════════════════════════════════════════
 
 #[pyclass]
@@ -607,7 +604,7 @@ impl UnGraph {
 }
 
 // ════════════════════════════════════════════════════════════
-// FastDiGraph — f64 edge weights, GIL-free algorithms
+// FastDiGraph
 // ════════════════════════════════════════════════════════════
 
 #[pyclass]
@@ -751,6 +748,19 @@ impl FastDiGraph {
         })
     }
 
+    fn to_scipy_coo(&self, _py: Python<'_>) -> PyResult<(Vec<u32>, Vec<u32>, Vec<f64>)> {
+        let mut u_indices = Vec::with_capacity(self.inner.edge_count());
+        let mut v_indices = Vec::with_capacity(self.inner.edge_count());
+        let mut weights = Vec::with_capacity(self.inner.edge_count());
+
+        for edge in self.inner.edge_references() {
+            u_indices.push(edge.source().index() as u32);
+            v_indices.push(edge.target().index() as u32);
+            weights.push(*edge.weight());
+        }
+        Ok((u_indices, v_indices, weights))
+    }
+
     #[pyo3(signature = (damping_factor=0.85, iterations=100))]
     fn page_rank(&self, py: Python<'_>, damping_factor: f64, iterations: usize) -> Vec<f64> {
         py.allow_threads(|| algo::page_rank(&self.inner, damping_factor, iterations))
@@ -842,7 +852,7 @@ impl FastDiGraph {
 }
 
 // ════════════════════════════════════════════════════════════
-// StableDiGraph — stable indices after removal
+// StableDiGraph
 // ════════════════════════════════════════════════════════════
 
 #[pyclass]
@@ -914,7 +924,7 @@ impl StableDiGraph {
 }
 
 // ════════════════════════════════════════════════════════════
-// IntGraphMap — undirected, i32 node keys
+// IntGraphMap
 // ════════════════════════════════════════════════════════════
 
 #[pyclass]
@@ -992,7 +1002,7 @@ impl IntGraphMap {
 }
 
 // ════════════════════════════════════════════════════════════
-// IntDiGraphMap — directed, i32 node keys
+// IntDiGraphMap
 // ════════════════════════════════════════════════════════════
 
 #[pyclass]
@@ -1074,7 +1084,7 @@ impl IntDiGraphMap {
 }
 
 // ════════════════════════════════════════════════════════════
-// MatrixDiGraph — adjacency matrix, f64 edge weights
+// MatrixDiGraph
 // ════════════════════════════════════════════════════════════
 
 #[pyclass]
@@ -1163,7 +1173,7 @@ impl MatrixDiGraph {
 }
 
 // ════════════════════════════════════════════════════════════
-// CsrGraph — compressed sparse row, f64 edge weights
+// CsrGraph
 // ════════════════════════════════════════════════════════════
 
 #[pyclass]

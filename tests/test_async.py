@@ -15,7 +15,7 @@ async def test_async_parallel_dijkstra():
         g.add_edge(nodes[i], nodes[i + 1], 1.0)
 
     # 并行执行多个最短路径搜索任务
-    # 每个任务都会在 asyncio.to_thread 中运行，且 Rust 侧会释放 GIL
+    # 每个任务都会在 asyncio.to_thread 中运行, 且 Rust 侧会释放 GIL
     tasks = [
         g.dijkstra_async(nodes[0]),
         g.dijkstra_async(nodes[100]),

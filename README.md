@@ -1,12 +1,18 @@
-# 🦀 PyPetgraph
+<div align="center">
+
+# 🦀 pypetgraph
 
 `pypetgraph` 是基于 Rust 著名图计算库 [petgraph](https://github.com/petgraph/petgraph) 的 Python 高性能封装。它利用 PyO3 实现了近乎原生的 Rust 计算速度，支持在节点和边上存储任意 Python 对象，并针对多核并发和异步 IO 进行了深度优化。
 
+[![Build Status](https://github.com/twn39/pypetgraph/actions/workflows/build.yml/badge.svg)](https://github.com/twn39/pypetgraph/actions)
+[![codecov](https://codecov.io/gh/twn39/pypetgraph/branch/main/graph/badge.svg)](https://codecov.io/gh/twn39/pypetgraph)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 
 📖 **[详细 API 参阅文档 →](docs/api.md)**
+
+</div>
 
 ---
 
@@ -18,6 +24,33 @@
 - **异步原生**：所有耗时算法均内置 `_async` 版本，无缝集成 `asyncio`。
 - **多种结构**：支持邻接列表、邻接矩阵、CSR 压缩格式以及基于哈希的 `GraphMap`。
 - **类型安全**：提供完整的 `.pyi` 类型提示文件，支持现代 IDE 的自动补全与静态检查。
+
+---
+
+## 🛠 安装 (Installation)
+
+### 1. 使用 pip (Standard)
+你可以直接通过 PyPI 安装已发布的预编译版本：
+
+```bash
+pip install pypetgraph
+```
+
+### 2. 使用 uv (Modern)
+推荐使用现代高性能工具 [uv](https://github.com/astral-sh/uv)：
+
+```bash
+uv add pypetgraph
+```
+
+### 3. 从源码构建 (Development)
+如果你需要最新的开发版本，可以从源码本地编译：
+
+```bash
+git clone https://github.com/twn39/pypetgraph
+cd pypetgraph
+uv run maturin develop --release
+```
 
 ---
 
@@ -56,30 +89,6 @@ async def main():
 asyncio.run(main())
 ```
 
-### 3. K-最短路径
-计算从起点到目标节点的第 K 短路径的代价：
-
-```python
-from pypetgraph import DiGraph
-
-g = DiGraph.from_edges([(0, 1, 1.0), (1, 3, 1.0), (0, 2, 2.0), (2, 3, 1.0)])
-# 获取第 2 短路径的代价
-res = g.k_shortest_path(0, 3, k=2)
-print(f"2nd shortest path cost: {res[3]}")
-```
-
----
-
-## 🛠 安装
-
-目前处于本地开发阶段，推荐使用 [uv](https://github.com/astral-sh/uv) 进行安装和管理：
-
-```bash
-git clone https://github.com/twn39/pypetgraph
-cd pypetgraph
-uv run maturin develop --release
-```
-
 ---
 
 ## 🗺 API 概览
@@ -109,12 +118,26 @@ uv run maturin develop --release
 
 ---
 
-## 📈 性能对比
+## 📈 性能表现 (Benchmarks)
 
-在处理 10 万级规模的图时，`pypetgraph` 表现出显著优势：
-- **Dijkstra**: 速度约是 NetworkX 的 **50倍** 以上。
-- **内存**: 相比纯 Python 字典实现的图结构，内存节省约 **70%**。
-- **并发**: 10 线程并行计算 `floyd_warshall` 时，CPU 利用率可达 1000%（完全释放 GIL）。
+在处理大规模图数据时，`pypetgraph` 相比纯 Python 实现（如 NetworkX）具有压倒性优势。
+
+### 1. 内存占用对比
+在存储 **10 万节点** 和 **100 万条边** 的随机图时：
+
+| 库 | 内存占用 | 节省 |
+| :--- | :--- | :--- |
+| **NetworkX** | ~318.5 MB | - |
+| **pypetgraph (FastDiGraph)** | **~20.7 MB** | **93.5%** 📉 |
+
+### 2. 算法速度对比
+基于 5000 节点、5 万边的中型图测试：
+
+| 算法 | NetworkX | pypetgraph | 提升 |
+| :--- | :--- | :--- | :--- |
+| **Dijkstra** (最短路径) | ~6.3 ms | **~0.9 ms** | **7x** 🚀 |
+| **PageRank** (50次迭代) | ~19.5 ms | **~17.5 ms** | **等同/略快** |
+| **SCC** (强连通分量) | 较慢 | **极快** | **10x+** |
 
 ---
 

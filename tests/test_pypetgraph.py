@@ -14,7 +14,6 @@ from pypetgraph import (
     is_isomorphic,
 )
 
-
 # ════════════════════════════════════════════════════════════
 # DiGraph — construction
 # ════════════════════════════════════════════════════════════
@@ -338,7 +337,9 @@ class TestDiGraphAlgorithms:
         g.add_edge(0, 1, 1.0)
         g.add_edge(1, 2, 2.0)
         g.add_edge(0, 2, 10.0)
-        cost, path = g.astar(0, 2, lambda n: 0)
+        res = g.astar(0, 2, lambda n: 0)
+        assert res is not None
+        cost, path = res
         assert cost == 3.0
         assert path == [0, 1, 2]
 
@@ -689,7 +690,9 @@ class TestFastDiGraph:
         g.add_edge(0, 1, 1.0)
         g.add_edge(1, 2, 2.0)
         g.add_edge(0, 2, 10.0)
-        cost, path = g.astar(0, 2, lambda n: 0)
+        res = g.astar(0, 2, lambda n: 0)
+        assert res is not None
+        cost, path = res
         assert cost == 3.0
         assert path == [0, 1, 2]
 
@@ -1382,12 +1385,13 @@ class TestEdgeCases:
         g.add_edge(n, n, 1.0)
         assert g.edge_count == 1
 
-    def test_stable_digraph_add_after_remove(self):
+    def test_stable_digraph_basic(self):
         """StableDiGraph should keep stable indices."""
         g = StableDiGraph()
-        n0 = g.add_node("A")
+        g.add_node("A")
         n1 = g.add_node("B")
         n2 = g.add_node("C")
+
         g.remove_node(n1)
         # n2 should still be accessible at original index
         assert g.contains_node(n2)
