@@ -56,4 +56,4 @@ htmlcov/
 
 .ruff_cache/
 # Third party
-third_party
+third_party/

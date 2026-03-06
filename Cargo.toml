@@ -1,6 +1,6 @@
 [package]
 name = "pypetgraph"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 
 [lib]
@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.28", features = ["extension-module"] }
 petgraph = { version = "0.7", features = ["all"] }
-rand = "0.8"
+
 
 [profile.release]
 opt-level = 3

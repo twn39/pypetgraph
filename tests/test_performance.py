@@ -130,4 +130,14 @@ def test_memory_usage_info():
     pg_mem = get_process_memory() - start_mem
     print(f"[Memory] pypetgraph FastDiGraph: {pg_mem:.2f} MB")
 
-    print(f"📊 Memory Reduction: {((nx_mem - pg_mem) / nx_mem) * 100:.1f}%")
+    reduction_pct = ((nx_mem - pg_mem) / nx_mem) * 100 if nx_mem > 0 else 0
+    print(f"📊 Memory Reduction: {reduction_pct:.1f}%")
+
+    # pypetgraph must use meaningfully less memory than NetworkX.
+    # We conservatively require ≥50% reduction (README claims ~93%).
+    assert pg_mem < nx_mem, (
+        f"pypetgraph ({pg_mem:.1f}MB) must use less memory than NetworkX ({nx_mem:.1f}MB)"
+    )
+    assert reduction_pct >= 50, (
+        f"Expected ≥50% memory reduction, got {reduction_pct:.1f}%"
+    )

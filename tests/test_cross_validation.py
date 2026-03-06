@@ -126,3 +126,38 @@ class TestCrossValidation:
         pg_g = nx_to_pypet(nx_g, UnGraph)
 
         assert pg_g.connected_components() == nx.number_connected_components(nx_g)
+
+    def test_bellman_ford_unreachable_nodes_absent(self):
+        """Regression: bellman_ford used to return f64::INFINITY for unreachable nodes.
+        Now they must be absent from the result dict, consistent with NetworkX.
+        """
+        # Make a graph where some nodes are unreachable from node 0
+        nx_g = nx.DiGraph()
+        nx_g.add_weighted_edges_from([(0, 1, 1.0), (1, 2, 2.0)])  # node 3 is isolated
+        nx_g.add_node(3)
+        pg_g = nx_to_pypet(nx_g, FastDiGraph)
+
+        nx_dists = dict(nx.single_source_bellman_ford_path_length(nx_g, 0))
+        pg_dists = pg_g.bellman_ford(0)
+
+        # NetworkX only includes reachable nodes; our implementation must match
+        assert set(nx_dists.keys()) == set(pg_dists.keys()), (
+            f"bellman_ford result keys differ. NX: {set(nx_dists)}, PG: {set(pg_dists)}"
+        )
+        for node, dist in nx_dists.items():
+            assert pg_dists[node] == pytest.approx(dist)
+
+    def test_floyd_warshall_self_distances_zero(self):
+        """floyd_warshall must include self-distance = 0 for all nodes (matches NetworkX)."""
+        nx_g = nx.DiGraph([(0, 1, ), (1, 2)])
+        for u, v in nx_g.edges():
+            nx_g[u][v]['weight'] = 1.0
+        pg_g = nx_to_pypet(nx_g, FastDiGraph)
+
+        nx_res = dict(nx.floyd_warshall(nx_g))
+        pg_res = pg_g.floyd_warshall()
+
+        for node in nx_g.nodes():
+            assert pg_res.get(node, {}).get(node, None) == pytest.approx(0.0), (
+                f"Self-distance for node {node} must be 0.0"
+            )
