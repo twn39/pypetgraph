@@ -279,6 +279,65 @@ impl DiGraph {
         Ok(res.into_iter().map(|(n, d)| (n.index(), d)).collect())
     }
 
+    fn floyd_warshall(&self, py: Python<'_>) -> PyResult<HashMap<usize, HashMap<usize, f64>>> {
+        let edge_costs = extract_edge_costs(&self.inner, py)?;
+        let res = py.allow_threads(|| {
+            algo::floyd_warshall(&self.inner, |e| *edge_costs.get(&e.id()).unwrap())
+        });
+        match res {
+            Ok(map) => {
+                let mut out: HashMap<usize, HashMap<usize, f64>> = HashMap::new();
+                for ((u, v), w) in map {
+                    if w.is_finite() && w < 1e300 {
+                        out.entry(u.index()).or_default().insert(v.index(), w);
+                    }
+                }
+                Ok(out)
+            }
+            Err(_) => Err(PyValueError::new_err("Negative cycle detected")),
+        }
+    }
+
+    #[pyo3(signature = (start, goal, k, weight_fn=None))]
+    fn k_shortest_path(
+        &self,
+        py: Python<'_>,
+        start: usize,
+        goal: usize,
+        k: usize,
+        weight_fn: Option<PyObject>,
+    ) -> PyResult<HashMap<usize, f64>> {
+        if self.inner.node_weight(NodeIndex::new(start)).is_none()
+            || self.inner.node_weight(NodeIndex::new(goal)).is_none()
+        {
+            return Err(PyIndexError::new_err("Node index out of range"));
+        }
+
+        let edge_costs = if let Some(wf) = weight_fn {
+            let mut costs = HashMap::with_capacity(self.inner.edge_count());
+            for edge in self.inner.edge_references() {
+                let cost: f64 = wf
+                    .call1(py, (edge.source().index(), edge.target().index(), edge.weight().clone_ref(py)))?
+                    .extract(py)?;
+                costs.insert(edge.id(), cost);
+            }
+            costs
+        } else {
+            extract_edge_costs(&self.inner, py)?
+        };
+
+        let res = py.allow_threads(|| {
+            algo::k_shortest_path(
+                &self.inner,
+                NodeIndex::new(start),
+                Some(NodeIndex::new(goal)),
+                k,
+                |e| *edge_costs.get(&e.id()).unwrap(),
+            )
+        });
+        Ok(res.into_iter().map(|(n, d)| (n.index(), d)).collect())
+    }
+
     fn astar(
         &self,
         py: Python<'_>,
@@ -607,6 +666,33 @@ impl FastDiGraph {
         Ok(res.into_iter().map(|(n, d)| (n.index(), d)).collect())
     }
 
+    fn bellman_ford(&self, py: Python<'_>, start: usize) -> PyResult<HashMap<usize, f64>> {
+        if self.inner.node_weight(NodeIndex::new(start)).is_none() {
+            return Err(PyIndexError::new_err("Start node index out of range"));
+        }
+        let result = py.allow_threads(|| algo::bellman_ford(&self.inner, NodeIndex::new(start)));
+        match result {
+            Ok(paths) => Ok(paths.distances.into_iter().enumerate().collect()),
+            Err(_) => Err(PyValueError::new_err("Negative cycle detected")),
+        }
+    }
+
+    fn floyd_warshall(&self, py: Python<'_>) -> PyResult<HashMap<usize, HashMap<usize, f64>>> {
+        let res = py.allow_threads(|| algo::floyd_warshall(&self.inner, |e| *e.weight()));
+        match res {
+            Ok(map) => {
+                let mut out: HashMap<usize, HashMap<usize, f64>> = HashMap::new();
+                for ((u, v), w) in map {
+                    if w.is_finite() && w < 1e300 {
+                        out.entry(u.index()).or_default().insert(v.index(), w);
+                    }
+                }
+                Ok(out)
+            }
+            Err(_) => Err(PyValueError::new_err("Negative cycle detected")),
+        }
+    }
+
     fn astar(
         &self,
         py: Python<'_>,
@@ -636,17 +722,6 @@ impl FastDiGraph {
             )
         });
         Ok(res.map(|(cost, path)| (cost, path.into_iter().map(|n| n.index()).collect())))
-    }
-
-    fn bellman_ford(&self, py: Python<'_>, start: usize) -> PyResult<HashMap<usize, f64>> {
-        if self.inner.node_weight(NodeIndex::new(start)).is_none() {
-            return Err(PyIndexError::new_err("Start node index out of range"));
-        }
-        let result = py.allow_threads(|| algo::bellman_ford(&self.inner, NodeIndex::new(start)));
-        match result {
-            Ok(paths) => Ok(paths.distances.into_iter().enumerate().collect()),
-            Err(_) => Err(PyValueError::new_err("Negative cycle detected")),
-        }
     }
 
     fn is_cyclic(&self, py: Python<'_>) -> bool {
@@ -1145,6 +1220,22 @@ impl CsrGraph {
         let result = py.allow_threads(|| algo::bellman_ford(&self.inner, start as u32));
         match result {
             Ok(paths) => Ok(paths.distances.into_iter().enumerate().collect()),
+            Err(_) => Err(PyValueError::new_err("Negative cycle detected")),
+        }
+    }
+
+    fn floyd_warshall(&self, py: Python<'_>) -> PyResult<HashMap<usize, HashMap<usize, f64>>> {
+        let res = py.allow_threads(|| algo::floyd_warshall(&self.inner, |e| *e.weight()));
+        match res {
+            Ok(map) => {
+                let mut out: HashMap<usize, HashMap<usize, f64>> = HashMap::new();
+                for ((u, v), w) in map {
+                    if w.is_finite() && w < 1e300 {
+                        out.entry(u as usize).or_default().insert(v as usize, w);
+                    }
+                }
+                Ok(out)
+            }
             Err(_) => Err(PyValueError::new_err("Negative cycle detected")),
         }
     }

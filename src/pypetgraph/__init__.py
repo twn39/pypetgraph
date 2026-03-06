@@ -49,6 +49,8 @@ _add_async_methods(
         "is_cyclic",
         "toposort",
         "dijkstra",
+        "floyd_warshall",
+        "k_shortest_path",
         "astar",
         "tarjan_scc",
         "kosaraju_scc",
@@ -65,6 +67,7 @@ _add_async_methods(
         "dijkstra",
         "astar",
         "bellman_ford",
+        "floyd_warshall",
         "is_cyclic",
         "toposort",
         "tarjan_scc",
@@ -78,7 +81,7 @@ _add_async_methods(
 _add_async_methods(MatrixDiGraph, ["dijkstra", "bellman_ford"])
 
 # --- 扩展 CsrGraph ---
-_add_async_methods(CsrGraph, ["dijkstra", "bellman_ford"])
+_add_async_methods(CsrGraph, ["dijkstra", "bellman_ford", "floyd_warshall"])
 
 # --- 扩展 UnGraph ---
 _add_async_methods(

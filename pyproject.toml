@@ -15,10 +15,10 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Mathematics",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -28,6 +28,7 @@ dependencies = []
 Homepage = "https://github.com/twn39/pypetgraph"
 Repository = "https://github.com/twn39/pypetgraph"
 Issues = "https://github.com/twn39/pypetgraph/issues"
+Documentation = "https://github.com/twn39/pypetgraph/blob/main/docs/api.md"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
@@ -36,6 +37,7 @@ build-backend = "maturin"
 [tool.maturin]
 python-source = "src"
 module-name = "pypetgraph._pypetgraph"
+bindings = "pyo3"
 features = ["pyo3/extension-module"]
 
 [dependency-groups]
@@ -51,7 +53,7 @@ dev = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py312"
+target-version = "py311"
 src = ["src"]
 
 [tool.ruff.lint]
@@ -63,17 +65,33 @@ select = [
     "C",   # flake8-comprehensions
     "B",   # flake8-bugbear
     "UP",  # pyupgrade
+    "RUF", # ruff-specific rules
+    "SIM", # flake8-simplify
+    "TID", # flake8-tidy-imports
 ]
 ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["pypetgraph"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 addopts = "-ra --strict-markers"
+markers = [
+    "benchmark: marks tests as benchmarks",
+]
 
 [tool.coverage.run]
 source = ["pypetgraph"]
+omit = ["tests/*"]
 
 [tool.coverage.report]
 show_missing = true
@@ -82,4 +100,6 @@ exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
     "async def.*_async",
+    "def __repr__",
+    "raise NotImplementedError",
 ]
