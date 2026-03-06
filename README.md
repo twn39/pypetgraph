@@ -4,6 +4,8 @@
 
 `pypetgraph` 是基于 Rust 著名图计算库 [petgraph](https://github.com/petgraph/petgraph) 的 Python 高性能封装。它利用 PyO3 实现了近乎原生的 Rust 计算速度，支持在节点和边上存储任意 Python 对象，并针对多核并发和异步 IO 进行了深度优化。
 
+[![PyPI Version](https://img.shields.io/pypi/v/pypetgraph.svg)](https://pypi.org/project/pypetgraph/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/pypetgraph.svg)](https://pypi.org/project/pypetgraph/)
 [![Build Status](https://github.com/twn39/pypetgraph/actions/workflows/build.yml/badge.svg)](https://github.com/twn39/pypetgraph/actions)
 [![codecov](https://codecov.io/gh/twn39/pypetgraph/branch/main/graph/badge.svg)](https://codecov.io/gh/twn39/pypetgraph)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
